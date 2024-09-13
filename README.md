@@ -285,4 +285,4 @@
 
 ### Архив со всеми Ansible-конфигурациями
 
-[ansible-configs.zip](ansible-configs/ansible_configs.zip)
+[ansible-configs.zip](ansible-configs/ansible-configs.zip)
