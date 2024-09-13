@@ -1,0 +1,60 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'monitoring_server'
+    static_configs:
+      - targets: ['monitoring.servers.newlxp.ru:9090']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  - job_name: 'api_server_1'
+    static_configs:
+      - targets: ['back-1.servers.newlxp.ru:9100']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  - job_name: 'api_server_2'
+    static_configs:
+      - targets: ['back-2.servers.newlxp.ru:9100']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  - job_name: 'api_server_3'
+    static_configs:
+      - targets: ['back-3.servers.newlxp.ru:9100']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  - job_name: 'db_server'
+    static_configs:
+      - targets: ['db.servers.newlxp.ru:9100']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  - job_name: 'standby_db_server'
+    static_configs:
+      - targets: ['db-standby.servers.newlxp.ru:9100']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  - job_name: 'mobile_app_server'
+    static_configs:
+      - targets: ['mobileapp.servers.newlxp.ru:9100']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  - job_name: 'front_end_server'
+    static_configs:
+      - targets: ['front.servers.newlxp.ru:9100']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance

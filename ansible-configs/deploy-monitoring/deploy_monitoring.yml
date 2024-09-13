@@ -1,0 +1,100 @@
+---
+- hosts: monitoring_servers
+  become: yes
+  tasks:
+    - name: Install Docker
+      apt:
+        name: docker.io
+        state: present
+        update_cache: yes
+
+    - name: Install pip
+      apt:
+        name: python3-pip
+        state: present
+
+    - name: Install Docker Python Module
+      pip:
+        name: docker
+        state: present
+
+    - name: Ensure Prometheus configuration directory exists
+      file:
+        path: /etc/prometheus
+        state: directory
+        mode: '0755'
+    
+    - name: Copy Prometheus configuration file
+      template:
+        src: prometheus.yml
+        dest: /etc/prometheus/prometheus.yml
+
+    - name: Run Prometheus Container
+      docker_container:
+        name: prometheus
+        image: prom/prometheus
+        ports:
+          - "9090:9090"
+        volumes:
+          - /etc/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+        restart_policy: unless-stopped
+        container_default_behavior: no_defaults
+
+    - name: Run Grafana Container
+      docker_container:
+        name: grafana
+        image: grafana/grafana
+        ports:
+          - "3000:3000"
+        restart_policy: unless-stopped
+        env:
+          GF_SECURITY_ADMIN_PASSWORD: "secure_password"
+        container_default_behavior: no_defaults
+
+- hosts: api_servers:db_servers:front_servers:mobile_app_servers
+  become: yes
+  tasks:
+    - name: Download node_exporter
+      get_url:
+        url: "https://github.com/prometheus/node_exporter/releases/download/v1.7.0/node_exporter-1.7.0.linux-amd64.tar.gz"
+        dest: "/tmp/node_exporter.tar.gz"
+        mode: '0664'
+
+    - name: Create directory for node_exporter
+      file:
+        path: "/opt/node_exporter"
+        state: directory
+
+    - name: Extract node_exporter
+      unarchive:
+        src: "/tmp/node_exporter.tar.gz"
+        dest: "/opt/node_exporter"
+        remote_src: yes
+        creates: "/opt/node_exporter/node_exporter"
+
+    - name: Copy node_exporter binary to user bin
+      copy:
+        src: "/opt/node_exporter/node_exporter-1.7.0.linux-amd64/node_exporter"
+        dest: "/usr/local/bin/node_exporter"
+        remote_src: yes
+        mode: '0755'
+
+
+    - name: Create node_exporter user
+      user:
+        name: node_exporter
+        system: yes
+        shell: /sbin/nologin
+        create_home: no
+
+    - name: Copy node_exporter systemd service file
+      template:
+        src: "node_exporter.service.j2"
+        dest: "/etc/systemd/system/node_exporter.service"
+
+    - name: Enable and start node_exporter
+      systemd:
+        name: node_exporter
+        enabled: yes
+        state: started
+        daemon_reload: yes

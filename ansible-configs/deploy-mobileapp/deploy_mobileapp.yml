@@ -1,0 +1,80 @@
+---
+- hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Clone the Mobile App repository locally
+      git:
+        repo: 'git@github.com:ithub/ithub-lxp-mobileapp.git'
+        dest: '/tmp/ithublxp-mobileapp'
+        clone: yes
+        update: yes
+
+    - name: Compress the repository
+      command: tar -czf /tmp/ithublxp-mobileapp.tar.gz -C /tmp ithublxp-mobileapp
+
+    - name: Copy the compressed repository to the mobile app server
+      copy:
+        src: /tmp/ithublxp-mobileapp.tar.gz
+        dest: /home/ithublxp-mobileapp.tar.gz
+      delegate_to: mobileapp_server
+
+    - name: Remove the local compressed repository copy
+      file:
+        path: /tmp/ithublxp-mobileapp.tar.gz
+        state: absent
+
+    - name: Remove the local repository copy
+      file:
+        path: '/tmp/ithublxp-mobileapp'
+        state: absent
+
+- hosts: mobile_app_servers
+  become: yes
+  tasks:
+    - name: Install Node.js
+      apt:
+        name: "{{ packages }}"
+        update_cache: yes
+      vars:
+        packages:
+          - nodejs
+          - npm
+
+    - name: Install PM2
+      npm:
+        name: pm2
+        global: yes
+
+    - name: Decompress the repository on the mobile app server
+      command: tar -xzf /home/ithublxp-mobileapp.tar.gz -C /home/
+      args:
+        chdir: /home/
+
+    - name: Remove the compressed repository on the mobile app server
+      file:
+        path: /home/ithublxp-mobileapp.tar.gz
+        state: absent
+
+    - name: Stop existing PM2 process
+      shell: pm2 delete "IThub LXP Mobile App" || true
+      ignore_errors: yes
+
+    - name: Start the Mobile App with PM2
+      shell: pm2 start "XXXX" --name "IThub LXP Mobile App"
+      args:
+        executable: /bin/bash
+      environment:
+        HOME: "/root"
+
+    - name: Save PM2 process list and configure startup script
+      shell: pm2 save && pm2 startup
+      args:
+        executable: /bin/bash
+
+    - name: Display PM2 status
+      shell: pm2 status
+      register: pm2_status
+
+    - name: Show PM2 status output
+      debug:
+        msg: "{{ pm2_status.stdout }}"

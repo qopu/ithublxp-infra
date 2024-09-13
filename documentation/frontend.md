@@ -1,0 +1,122 @@
+# Конфигурация развертки Front-end
+
+---
+
+Сценарий Ansible `deploy-front.yml`:
+
+```jsx
+---
+- hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Clone the IThub LXP repository locally
+      git:
+        repo: 'git@github.com:ithub/ithub-lxp-frontend.git'
+        dest: '/tmp/ithublxp'
+        clone: yes
+        update: yes
+
+    - name: Compress the repository
+      command: tar -czf /tmp/ithublxp.tar.gz -C /tmp ithublxp
+
+    - name: Copy the compressed repository to the front server
+      copy:
+        src: /tmp/ithublxp.tar.gz
+        dest: /var/www/ithublxp.tar.gz
+      delegate_to: front_server
+
+    - name: Remove the local compressed repository copy
+      file:
+        path: /tmp/ithublxp.tar.gz
+        state: absent
+
+    - name: Remove the local repository copy
+      file:
+        path: '/tmp/ithublxp'
+        state: absent
+
+- hosts: front_servers
+  become: yes
+  tasks:
+    - name: Decompress the repository on the front server
+      command: tar -xzf /var/www/ithublxp.tar.gz -C /var/www/
+      args:
+        chdir: /var/www/
+
+    - name: Remove the compressed repository on the front server
+      file:
+        path: /var/www/ithublxp.tar.gz
+        state: absent
+
+    - name: Install prerequisites
+      apt:
+        name: "{{ packages }}"
+        update_cache: yes
+      vars:
+        packages:
+          - git
+          - curl
+          - python3-pip
+
+    - name: Install Node.js NVM (Node Version Manager)
+      shell: |
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        nvm install node
+      args:
+        executable: /bin/bash
+      environment:
+        HOME: "/root"
+
+    - name: Install project dependencies with npm
+      shell: |
+        . "$NVM_DIR/nvm.sh"
+        cd /var/www/ithublxp
+        npm install
+      environment:
+        HOME: "/root"
+        NVM_DIR: "/root/.nvm"
+
+    - name: Build the project with npm
+      shell: |
+        . "$NVM_DIR/nvm.sh"
+        cd /var/www/ithublxp
+        npm run build
+      environment:
+        HOME: "/root"
+        NVM_DIR: "/root/.nvm"
+
+    - name: Stop existing PM2 process
+      shell: pm2 delete "IThub LXP Front-end" || true
+      ignore_errors: yes
+
+    - name: Start the application with PM2
+      shell: |
+        . "$NVM_DIR/nvm.sh"
+        cd /var/www/ithublxp
+        pm2 start "npm run server" --name "IThub LXP Front-end"
+      environment:
+        HOME: "/root"
+        NVM_DIR: "/root/.nvm"
+
+    - name: Ensure PM2 saves the process list and resurrects on reboot
+      shell: pm2 save && pm2 startup
+      environment:
+        HOME: "/root"
+        NVM_DIR: "/root/.nvm"
+```
+
+Файл с хостами `inventory.ini`:
+
+```jsx
+[front_servers]
+front_server ansible_host=XX.XX.XX.XX
+```
+
+Файл с конфигурацией .env `conf/env_file`:
+
+```jsx
+VITE_URL_API=****
+PORT=****
+```

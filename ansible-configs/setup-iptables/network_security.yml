@@ -1,0 +1,123 @@
+---
+- name: Configure iptables for IThub LXP servers
+  hosts: all
+  become: yes
+
+  tasks:
+    # Удаляем существующие правила iptables для чистого старта
+    - name: Flush existing iptables rules
+      iptables:
+        flush: yes
+        state: absent
+
+    # Разрешаем SSH доступ со всех IP-адресов
+    - name: Allow SSH for all
+      iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: 22
+        jump: ACCEPT
+
+    # Разрешаем весь трафик на loopback интерфейсе
+    - name: Allow loopback traffic
+      iptables:
+        chain: INPUT
+        in_interface: lo
+        jump: ACCEPT
+
+    # Разрешаем уже установленные и связанные соединения
+    - name: Allow established and related incoming traffic
+      iptables:
+        chain: INPUT
+        ctstate: ESTABLISHED,RELATED
+        jump: ACCEPT
+
+    # Разрешаем HTTP и HTTPS для API серверов
+    - name: Allow HTTP and HTTPS for API servers
+      iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "{{ item }}"
+        jump: ACCEPT
+      loop:
+        - '80'
+        - '443'
+      when: inventory_hostname in groups['api_servers']
+
+    # Разрешаем MySQL соединения только с API серверов к DB серверам
+    - name: Allow MySQL for DB servers
+      iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: '3306'
+        source: "{{ hostvars[item].ansible_host }}"
+        jump: ACCEPT
+      with_items: "{{ groups['api_servers'] }}"
+      when: inventory_hostname in groups['db_servers']
+
+    # Устанавливаем политику по умолчанию для FORWARD и OUTPUT цепочек
+    - name: Set default iptables policies
+      iptables:
+        chain: "{{ item.chain }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { chain: 'FORWARD', policy: 'DROP' }
+        - { chain: 'OUTPUT', policy: 'ACCEPT' }
+
+    # Сохраняем наши правила iptables, чтобы они оставались после перезагрузки
+    - name: Save iptables rules
+      ansible.builtin.command: /usr/sbin/netfilter-persistent save
+
+    # Гарантируем, что dpkg не прерван в случае предыдущих ошибок
+    - name: Ensure dpkg is not interrupted
+      ansible.builtin.command:
+        cmd: dpkg --configure -a
+      become: yes
+
+    # Устанавливаем fail2ban для защиты SSH
+    - name: Install fail2ban
+      ansible.builtin.apt:
+        name: fail2ban
+        state: present
+
+    # Настраиваем fail2ban для мониторинга SSH попыток входа
+    - name: Configure fail2ban for SSH
+      ansible.builtin.copy:
+        dest: /etc/fail2ban/jail.d/ssh.conf
+        content: |
+          [sshd]
+          enabled = true
+          port    = ssh
+          filter  = sshd
+          logpath = /var/log/auth.log
+          maxretry = 3
+      notify: restart fail2ban
+
+    # Проверяем, установлен ли nmap
+    - name: Check if nmap is installed
+      ansible.builtin.command: which nmap
+      register: nmap_installed
+      delegate_to: localhost
+      changed_when: false
+      ignore_errors: yes
+
+    # Проверяем открытые порты с использованием nmap
+    - name: Check for open ports
+      ansible.builtin.command: nmap -sT {{ ansible_host }}
+      register: nmap_output
+      delegate_to: localhost
+      changed_when: false
+      when: nmap_installed.rc == 0
+
+    # Выводим результаты сканирования nmap
+    - name: Show nmap scan results
+      ansible.builtin.debug:
+        msg: "{{ nmap_output.stdout_lines }}"
+      when: nmap_installed.rc == 0 and nmap_output.stdout != ""
+
+  handlers:
+    # Обработчик для перезапуска fail2ban при изменении конфигурации
+    - name: restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted
